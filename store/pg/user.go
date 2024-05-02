@@ -2,29 +2,28 @@ package pg
 
 import (
 	"context"
+	"database/sql"
 	"github.com/VikaGo/REST_API/model"
-	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
-// UserPgRepo ...
-type UserPgRepo struct {
-	db *DB
+// UserRepo ...
+type UserRepo struct {
+	db *sqlx.DB
 }
 
 // NewUserRepo ...
-func NewUserRepo(db *DB) *UserPgRepo {
-	return &UserPgRepo{db: db}
+func NewUserRepo(db *sqlx.DB) *UserRepo {
+	return &UserRepo{db: db}
 }
 
 // GetUser retrieves user from Postgres
-func (repo *UserPgRepo) GetUser(ctx context.Context, id uuid.UUID) (*model.DBUser, error) {
+func (repo *UserRepo) GetUser(ctx context.Context, id uuid.UUID) (*model.DBUser, error) {
 	user := &model.DBUser{}
-	err := repo.db.Model(user).
-		Where("id = ?", id).
-		Select()
+	err := repo.db.Get(user, "SELECT * FROM users WHERE id = $1", id)
 	if err != nil {
-		if err == pg.ErrNoRows { //not found
+		if err == sql.ErrNoRows { //not found
 			return nil, nil
 		}
 		return nil, err
@@ -33,10 +32,8 @@ func (repo *UserPgRepo) GetUser(ctx context.Context, id uuid.UUID) (*model.DBUse
 }
 
 // CreateUser creates user in Postgres
-func (repo *UserPgRepo) CreateUser(ctx context.Context, user *model.DBUser) (*model.DBUser, error) {
-	_, err := repo.db.Model(user).
-		Returning("*").
-		Insert()
+func (repo *UserRepo) CreateUser(ctx context.Context, user *model.DBUser) (*model.DBUser, error) {
+	_, err := repo.db.NamedExec("INSERT INTO users (id, firstname, lastname, nickname, password) VALUES (:id, :firstname, :lastname, :nickname, :password)", user)
 	if err != nil {
 		return nil, err
 	}
@@ -44,13 +41,10 @@ func (repo *UserPgRepo) CreateUser(ctx context.Context, user *model.DBUser) (*mo
 }
 
 // UpdateUser updates user in Postgres
-func (repo *UserPgRepo) UpdateUser(ctx context.Context, user *model.DBUser) (*model.DBUser, error) {
-	_, err := repo.db.Model(user).
-		WherePK().
-		Returning("*").
-		Update()
+func (repo *UserRepo) UpdateUser(ctx context.Context, user *model.DBUser) (*model.DBUser, error) {
+	_, err := repo.db.NamedExec("UPDATE users SET id = :id, firstname = :firstname, lastname =:lastname, nickname =:nickname, password =:password WHERE id = :id", user)
 	if err != nil {
-		if err == pg.ErrNoRows { //not found
+		if err == sql.ErrNoRows { //not found
 			return nil, nil
 		}
 		return nil, err
@@ -60,12 +54,10 @@ func (repo *UserPgRepo) UpdateUser(ctx context.Context, user *model.DBUser) (*mo
 }
 
 // DeleteUser deletes user in Postgres
-func (repo *UserPgRepo) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	_, err := repo.db.Model((*model.DBUser)(nil)).
-		Where("id = ?", id).
-		Delete()
+func (repo *UserRepo) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	_, err := repo.db.Exec("DELETE FROM users WHERE id = $1", id)
 	if err != nil {
-		if err == pg.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil
 		}
 		return err
@@ -73,23 +65,28 @@ func (repo *UserPgRepo) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (repo *UserPgRepo) GetPassword(ctx context.Context, id uuid.UUID) (string, error) {
-	// Create a user model object to store the result.
-	user := &model.DBUser{}
-
-	// Execute a database query to select the user's password with the specified ID.
-	err := repo.db.Model(user).
-		Column("password").
-		Where("id = ?", id).
-		Select()
-
+func (repo *UserRepo) GetPassword(ctx context.Context, id uuid.UUID) (string, error) {
+	var password string
+	err := repo.db.Get(&password, "SELECT password FROM users WHERE id = $1", id)
 	if err != nil {
-		if err == pg.ErrNoRows { // If the user is not found, return an empty string and no error.
+		if err == sql.ErrNoRows { // If the user is not found, return an empty string and no error.
 			return "", nil
 		}
 		return "", err // Otherwise, return an error if one occurred during the database query.
 	}
 
 	// If the query was successful, return the retrieved password as a string and no error.
-	return user.Password, nil
+	return password, nil
+}
+
+func (repo *UserRepo) GetUserByNickname(ctx context.Context, nickname string) (*model.DBUser, error) {
+	user := &model.DBUser{}
+	err := repo.db.Get(user, "SELECT * FROM users WHERE nickname = $1", nickname)
+	if err != nil {
+		if err == sql.ErrNoRows { //not found
+			return nil, nil
+		}
+		return nil, err
+	}
+	return user, nil
 }
